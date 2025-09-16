@@ -28,14 +28,13 @@ public class UserThread implements Runnable {
 					socket.getOutputStream());
 			while (true) {
 			
-				// �������̶�ȡ�㲥���µļ۸�
 				PriceVector priceVector = (PriceVector) objIn.readObject();
 
 				System.out.println("User_" + userID + "�ɹ���ȡ���㲥�ļ۸�"
 						+ priceVector.toString());
 				LogToTxtFile.getWritelogtofile().println("User_" + userID + "�ɹ���ȡ���㲥�ļ۸�"
 						+ priceVector.toString());
-				// ���������̻�ȡ����Ѽ۸��û�������ֹ
+				
 				if (priceVector.isEnd()) {
 					System.out.println( "�����̸��������ռ۸��ǣ�"
 							+ priceVector.toString());
@@ -47,11 +46,9 @@ public class UserThread implements Runnable {
 				int[] consumVector = new int[UsersArgs.timeSlots];
 				OneUserConsumVector oneUserConsumVector = new OneUserConsumVector(
 						userID, consumVector);
-				// ���ݶ�ȡ�ļ۸����������û����õ���������userConsumVector��
 				oneUserConsumVector = UserMaxSatisfaConsumVector
 						.getConsumVectorByPriceVector(oneUserConsumVector,
 								priceVector);
-				// ���ظ��û����õ�����
 				objOut.writeObject(oneUserConsumVector);
 				System.out.println("User_" + userID + "�ڸü۸��¼ƻ��õ�����"
 						+ oneUserConsumVector.toString());
@@ -60,7 +57,6 @@ public class UserThread implements Runnable {
 				LogToTxtFile.getWritelogtofile().flush();
 			}
 			objOut.flush();
-			// �ر�����
 			objIn.close();
 			objOut.close();
 			socket.close();
@@ -77,7 +73,6 @@ public class UserThread implements Runnable {
 		int[] consumVector = new int[UsersArgs.timeSlots];
 		OneUserConsumVector oneUserConsumVector = new OneUserConsumVector(0,
 				consumVector);
-		// ���ݶ�ȡ�ļ۸����������û����õ���������userConsumVector��
 		oneUserConsumVector = UserMaxSatisfaConsumVector
 				.getConsumVectorByPriceVector(oneUserConsumVector, priceVector);
 		System.out.println(oneUserConsumVector.toString());

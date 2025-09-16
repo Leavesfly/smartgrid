@@ -84,7 +84,6 @@ public class Retailer {
 		this.consumByTimeNew = consumByTimeNew;
 	}
 
-	// ���������û����ص�ʱ����õ��б��������̵�ʱ����õ�����������ͨ���̵߳Ļص���
 	public static void fillConsumVectorByTime(ConsumEleByTime consumByTime,
 			List<OneUserConsumVector> userConsumVectList) {
 		if (userConsumVectList.size() != UsersArgs.userNum) {

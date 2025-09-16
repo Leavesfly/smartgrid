@@ -63,7 +63,6 @@ public class SAPC_Algorithm {
                 LogToTxtFile.getWritelogtofile().println("�µ�����" + retailer.getRetailerProfitNew());
                 LogToTxtFile.getWritelogtofile().println("------------------------------");
 
-                // �����������ǰ�Ĵ���ô���¼۸������
                 if (retailer.getRetailerProfitNew() > retailer
                         .getRetailerProfitNow()) {
 
