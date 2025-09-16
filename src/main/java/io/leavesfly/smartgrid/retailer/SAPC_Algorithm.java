@@ -59,8 +59,8 @@ public class SAPC_Algorithm {
                     retailer.getConsumByTimeNow().wait();
                 }
 
-                LogToTxtFile.getWritelogtofile().println("�û��ڸü۸��µ��õ������" + retailer.getConsumByTimeNew());
-                LogToTxtFile.getWritelogtofile().println("�µ�����" + retailer.getRetailerProfitNew());
+                LogToTxtFile.getWritelogtofile().println("retailer:" + retailer.getConsumByTimeNew());
+                LogToTxtFile.getWritelogtofile().println("getRetailerProfitNew:" + retailer.getRetailerProfitNew());
                 LogToTxtFile.getWritelogtofile().println("------------------------------");
 
                 if (retailer.getRetailerProfitNew() > retailer

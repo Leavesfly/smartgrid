@@ -15,12 +15,12 @@ public class UserThread implements Runnable {
 
 	@Override
 	public void run() {
-		try {// �������Ӳ�����������������������
+		try {
 			Socket socket = new Socket(UsersArgs.ip, UsersArgs.port);
-			System.out.println("User_" + userID + "�ڵ�ǰ��socket��"
-					+ socket.getLocalPort() + "��ȡ���ӳɹ�...");
-			LogToTxtFile.getWritelogtofile().println("User_" + userID + "�ڵ�ǰ��socket��"
-					+ socket.getLocalPort() + "��ȡ���ӳɹ�...");
+			System.out.println("User_" + userID + "socket"
+					+ socket.getLocalPort() + "...");
+			LogToTxtFile.getWritelogtofile().println("User_" + userID + "socket"
+					+ socket.getLocalPort() + "...");
 
 			ObjectInputStream objIn = new ObjectInputStream(
 					socket.getInputStream());
@@ -30,15 +30,15 @@ public class UserThread implements Runnable {
 			
 				PriceVector priceVector = (PriceVector) objIn.readObject();
 
-				System.out.println("User_" + userID + "�ɹ���ȡ���㲥�ļ۸�"
+				System.out.println("User_" + userID + "userID"
 						+ priceVector.toString());
-				LogToTxtFile.getWritelogtofile().println("User_" + userID + "�ɹ���ȡ���㲥�ļ۸�"
+				LogToTxtFile.getWritelogtofile().println("User_" + userID + "userID"
 						+ priceVector.toString());
 				
 				if (priceVector.isEnd()) {
-					System.out.println( "�����̸��������ռ۸��ǣ�"
+					System.out.println( "priceVector:"
 							+ priceVector.toString());
-					LogToTxtFile.getWritelogtofile().println("�����̸��������ռ۸��ǣ�"
+					LogToTxtFile.getWritelogtofile().println("priceVector:"
 							+ priceVector.toString());
 					LogToTxtFile.getWritelogtofile().flush();
 					break;
@@ -50,9 +50,9 @@ public class UserThread implements Runnable {
 						.getConsumVectorByPriceVector(oneUserConsumVector,
 								priceVector);
 				objOut.writeObject(oneUserConsumVector);
-				System.out.println("User_" + userID + "�ڸü۸��¼ƻ��õ�����"
+				System.out.println("User_" + userID + "userID"
 						+ oneUserConsumVector.toString());
-				LogToTxtFile.getWritelogtofile().println("User_" + userID + "�ڸü۸��¼ƻ��õ�����"
+				LogToTxtFile.getWritelogtofile().println("User_" + userID + "userID"
 						+ oneUserConsumVector.toString());
 				LogToTxtFile.getWritelogtofile().flush();
 			}

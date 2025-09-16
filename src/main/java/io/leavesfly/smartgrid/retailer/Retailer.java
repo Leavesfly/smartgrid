@@ -88,7 +88,7 @@ public class Retailer {
 			List<OneUserConsumVector> userConsumVectList) {
 		if (userConsumVectList.size() != UsersArgs.userNum) {
 			System.out.println(userConsumVectList.size());
-			System.out.println("fillConsumVectorByTime�������");
+			System.out.println("fillConsumVectorByTime");
 		}
 		for (int i = 0; i < consumByTime.getConsumByTimeVector().length; i++) {
 			int consumInTime = 0;
