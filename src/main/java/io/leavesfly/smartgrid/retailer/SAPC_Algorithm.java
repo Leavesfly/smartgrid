@@ -8,71 +8,71 @@ import io.leavesfly.smartgrid.user.UsersArgs;
  * SAPC（Simulated Annealing Price Control）价格控制算法类
  * 实现智能电网中零售商的动态定价算法
  * 采用模拟退火算法找到最优价格策略，最大化零售商利润
- * 
+ * <p>
  * 算法核心原理：
  * 1. 初始化随机价格向量
  * 2. 在每个温度下，随机扰动价格向量
  * 3. 根据利润改善情况决定是否接受新价格
  * 4. 逐渐降低温度，直至收敛
- * 
+ *
  * @author SmartGrid Team
  * @version 1.0
  */
 public final class SAPC_Algorithm {
-    
+
     /**
      * 模拟退火价格优化算法主方法
      * 在多线程环境中与用户进行交互，逐步优化价格策略
-     * 
+     *
      * @param retailer 零售商核心对象，包含共享状态和同步机制
      * @throws Exception 算法执行过程中的异常
      */
     public static void simulatedAnnealingAglorith(Retailer retailer) throws Exception {
-        
+
         RetailerLogger.logInfo("SAPC算法开始执行");
-        
+
         // 等待所有用户连接完成
         synchronized (retailer.getStepCounter()) {
             retailer.getStepCounter().wait();
         }
-        
+
         RetailerLogger.logInfo("所有用户已连接，SAPC算法开始初始化");
-        
+
         // 初始化价格向量并进行第一轮交互
         retailer.getNewPriceVector().copyPriceVector(
-            retailer.getNewPriceVector(), 
-            retailer.getCurrentPriceVector()
+                retailer.getNewPriceVector(),
+                retailer.getCurrentPriceVector()
         );
-        
+
         Thread.sleep(1500);
         synchronized (retailer.getNewPriceVector()) {
             retailer.getNewPriceVector().notifyAll();
         }
-        
+
         synchronized (retailer.getCurrentConsumption()) {
             retailer.getCurrentConsumption().wait();
         }
         retailer.setCurrentRetailerProfit(retailer.getNewRetailerProfit());
-        
+
         RetailerLogger.logInfo("初始利润: " + retailer.getCurrentRetailerProfit());
-        
+
         // 执行主算法循环
         while (RetailerConfigConstants.INITIAL_TEMPERATURE > RetailerConfigConstants.END_TEMPERATURE) {
             RetailerLogger.logInfo(
-                "========================== 第 " + RetailerConfigConstants.CURRENT_ROUND + 
-                " 轮迭代 =========================="
+                    "========================== 第 " + RetailerConfigConstants.CURRENT_ROUND +
+                            " 轮迭代 =========================="
             );
-            
+
             int position = 0;
             for (position = 0; position < retailer.getCurrentPriceVector().getPriceArray().length; position++) {
-                
+
                 float randomPrice = PriceVector.generateRandomPrice();
                 retailer.setNewPriceVector(retailer.getCurrentPriceVector()
                         .createModifiedPriceVector(position, randomPrice,
                                 retailer.getNewPriceVector()));
-                
+
                 RetailerLogger.logInfo("当前价格" + retailer.getNewPriceVector().toString());
-                
+
                 Thread.sleep(1500);
                 synchronized (retailer.getNewPriceVector()) {
                     retailer.getNewPriceVector().notifyAll();
@@ -80,11 +80,11 @@ public final class SAPC_Algorithm {
                 synchronized (retailer.getCurrentConsumption()) {
                     retailer.getCurrentConsumption().wait();
                 }
-                
+
                 RetailerLogger.logInfo("系统总消耗:" + retailer.getNewConsumption());
                 RetailerLogger.logInfo("新利润:" + retailer.getNewRetailerProfit());
                 RetailerLogger.logInfo("------------------------------");
-                
+
                 if (retailer.getNewRetailerProfit() > retailer.getCurrentRetailerProfit()) {
                     retailer.getCurrentPriceVector().copyPriceVector(
                             retailer.getCurrentPriceVector(),
@@ -127,11 +127,11 @@ public final class SAPC_Algorithm {
         final float E = (float) Math.exp(-5);
         PriceVector priceVectorNow = new PriceVector();
         PriceVector priceVectorNew = new PriceVector();
-        OneUserConsumVector userTimeConsumNow = SAPC_Algorithm
-                .getUserTimeConsumByPrice(priceVectorNow);
-        float profitNow = RetailerProfitAlgorithm.getRetialProfit(
-                new ConsumEleByTime(userTimeConsumNow.getConsumVector()),
-                priceVectorNow);
+        OneUserConsumVector userTimeConsumNow = SAPC_Algorithm.getUserTimeConsumByPrice(priceVectorNow);
+
+        float profitNow = RetailerProfitCalculator.calculateRetailerProfit(
+                new ElectricityConsumptionByTime(userTimeConsumNow.getConsumVector()), priceVectorNow);
+
         System.out.println("T:" + T);
         System.out.println("E:" + E);
         System.out.println(priceVectorNow.toString());
@@ -139,53 +139,40 @@ public final class SAPC_Algorithm {
 
         while (T > E) {
             int position = 0;
-            for (position = 0; position < priceVectorNow.getPrices().length; position++) {
+            for (position = 0; position < priceVectorNow.getPriceArray().length; position++) {
 
-
-                float randomPrice = PriceVector.getOneRandomPrice();
-                PriceVector PriceVetcorNew = priceVectorNow.getNewPriceVector(
-                        position, randomPrice, priceVectorNew);
-
+                float randomPrice = PriceVector.generateRandomPrice();
+                priceVectorNew = priceVectorNow.createModifiedPriceVector(position, randomPrice, priceVectorNew);
 
                 OneUserConsumVector userTimeConsumNew = SAPC_Algorithm
-                        .getUserTimeConsumByPrice(PriceVetcorNew);
+                        .getUserTimeConsumByPrice(priceVectorNew);
 
-                float profitNew = RetailerProfitAlgorithm
-                        .getRetialProfit(
-                                new ConsumEleByTime(userTimeConsumNew
-                                        .getConsumVector()), PriceVetcorNew);
-
+                float profitNew = RetailerProfitCalculator.calculateRetailerProfit(
+                        new ElectricityConsumptionByTime(userTimeConsumNew.getConsumVector()), priceVectorNew);
 
                 if (profitNew > profitNow) {
-                    priceVectorNow.privceVectorGiven(priceVectorNow,
-                            PriceVetcorNew);
+                    priceVectorNow.copyPriceVector(priceVectorNow, priceVectorNew);
                     profitNow = profitNew;
                 } else {
                     if ((float) Math.random() < (float) (Math
                             .exp((profitNew - profitNow) / T))) {
-                        priceVectorNow.privceVectorGiven(priceVectorNow,
-                                PriceVetcorNew);
+                        priceVectorNow.copyPriceVector(priceVectorNow, priceVectorNew);
                         profitNow = profitNew;
                     }
                 }
 
-
-                LogToTxtFile.getWritelogtofile().println(PriceVetcorNew.toString());
-
-                LogToTxtFile.getWritelogtofile().println("profitNew:" + profitNew);
+                RetailerLogger.logInfo(priceVectorNew.toString());
+                RetailerLogger.logInfo("profitNew:" + profitNew);
             }
             k++;
             T = (float) (T / Math.log(k));
 
-
-            LogToTxtFile.getWritelogtofile().println("======================"
+            RetailerLogger.logInfo("======================"
                     + k
                     + "_Round========================");
         }
 
-        LogToTxtFile.getWritelogtofile().println("The right :" + priceVectorNow);
-        LogToTxtFile.getWritelogtofile().flush();
-        LogToTxtFile.getWritelogtofile().close();
+        RetailerLogger.logInfo("The right :" + priceVectorNow);
     }
 
     public static OneUserConsumVector getUserTimeConsumByPrice(
@@ -199,7 +186,6 @@ public final class SAPC_Algorithm {
         System.out.println(oneUserConsumVector.toString());
         return oneUserConsumVector;
     }
-
 
     public static void main(String[] args) {
         SAPC_Algorithm.sapcAglorith();
