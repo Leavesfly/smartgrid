@@ -41,7 +41,7 @@ public class RetailerServer {
         RetailerLogger.logInfo("开始执行SAPC价格优化算法");
         
         // 执行SAPC模拟退火价格优化算法
-        SAPC_Algorithm.simulatedAnnealingAglorith(retailer);
+        SAPC_Algorithm.simulatedAnnealingAlgorithm(retailer);
         
         // 关闭资源
         closeResources(serverSocket);

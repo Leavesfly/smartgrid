@@ -9,8 +9,8 @@ package io.leavesfly.smartgrid.retailer;
  */
 public class ElectricityConsumptionByTime {
     
-    /** 按时间段分组的电力消耗向量 */
-    private int[] consumptionByTimeVector;
+    /** 按时间段分组的电力消耗向量（kWh），使用 double 以支持论文的浮点精度 */
+    private double[] consumptionByTimeVector;
     
     /** 标识数据是否已完整填充 */
     private boolean isDataComplete;
@@ -20,7 +20,7 @@ public class ElectricityConsumptionByTime {
      * 初始化一个空的消耗向量，长度为系统配置的时间段数
      */
     public ElectricityConsumptionByTime() {
-        this.consumptionByTimeVector = new int[PriceVector.getTimeSlots()];
+        this.consumptionByTimeVector = new double[PriceVector.getTimeSlots()];
         this.isDataComplete = false;
     }
     
@@ -29,7 +29,7 @@ public class ElectricityConsumptionByTime {
      * 
      * @param consumptionByTimeVector 按时间段分组的消耗向量
      */
-    public ElectricityConsumptionByTime(int[] consumptionByTimeVector) {
+    public ElectricityConsumptionByTime(double[] consumptionByTimeVector) {
         this.consumptionByTimeVector = consumptionByTimeVector;
         this.isDataComplete = false;
     }
@@ -37,9 +37,9 @@ public class ElectricityConsumptionByTime {
     /**
      * 获取按时间段分组的消耗向量
      * 
-     * @return 消耗向量数组
+     * @return 消耗向量数组（double[]）
      */
-    public int[] getConsumptionByTimeVector() {
+    public double[] getConsumptionByTimeVector() {
         return consumptionByTimeVector;
     }
     
@@ -48,7 +48,7 @@ public class ElectricityConsumptionByTime {
      * 
      * @param consumptionByTimeVector 要设置的消耗向量数组
      */
-    public void setConsumptionByTimeVector(int[] consumptionByTimeVector) {
+    public void setConsumptionByTimeVector(double[] consumptionByTimeVector) {
         this.consumptionByTimeVector = consumptionByTimeVector;
     }
     
@@ -81,7 +81,6 @@ public class ElectricityConsumptionByTime {
                                           ElectricityConsumptionByTime newConsumption) {
         if (newConsumption.getConsumptionByTimeVector().length != 
             currentConsumption.getConsumptionByTimeVector().length) {
-            // 向量长度不匹配，不执行复制操作
             return;
         }
         

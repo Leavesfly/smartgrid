@@ -2,157 +2,246 @@ package io.leavesfly.smartgrid.user;
 
 import io.leavesfly.smartgrid.retailer.PriceVector;
 
+import java.util.Arrays;
+
 /**
- * 用户满意度最大化用电策略计算器
- * 
- * <p>该类实现智能电网系统中的用户用电行为建模算法。
- * 根据实时电价向量，为用户计算出一个最优的用电量向量，
- * 目标是<strong>在满足用户用电需求和设备限制的前提下，最大化用户的用电满意度</strong>。</p>
- * 
- * <p>算法设计原理：</p>
- * <ul>
- *   <li><strong>A类电器</strong>：不可调节电器，用电量固定，由UsersArgs.A_applianceConsum定义</li>
- *   <li><strong>B类电器</strong>：可调节电器，根据电价和用户满意度动态调整用电量</li>
- *   <li><strong>负荷限制</strong>：总用电量不能超过用户设定的最大值</li>
- * </ul>
- * 
- * <p>B类电器用电量计算公式：</p>
- * <pre>
- * 用电量 = min(1.5 * (时段+1) / (满意度 + 电价), 最大允许用电量)
- * </pre>
- * 
- * <p>该公式体现了以下经济学原理：</p>
- * <ul>
- *   <li>用户在满意度高的时段更愿意用电</li>
- *   <li>高电价会抑制用电需求</li>
- *   <li>时段系数反映了时间的价值权重</li>
- * </ul>
- * 
- * <p>在系统交互中的作用：</p>
- * <ol>
- *   <li>零售商（SAPC_Algorithm）发送电价向量</li>
- *   <li>用户模型计算用电响应向量</li>
- *   <li>用电向量返回给零售商</li>
- *   <li>零售商根据响应计算利润并进行下一轮优化</li>
- * </ol>
- * 
- * @author SmartGrid System
- * @version 1.0
+ * 用户用电调度算法（对应论文 Section III）。
+ *
+ * 本类实现了论文中用户侧求解问题 P1 的三个核心算法：
+ *
+ * Lemma 1（B 类弹性电器闭式解）：
+ * 对于效用函数 U(e) = -a*(e+b)^{-1}，有：
+ * ê_h = clamp( sqrt(a/(p_h + η_h)) - b, 0, r_max )
+ * 其中 a = a_ui_h，b = b_ui_h，r_max = B_rmax。
+ *
+ * Lemma 2（C 类半非弹性电器最优分配）：
+ * 目标：在工作期 [alpha,beta] 内以最小费用消耗总电量 E。
+ * 方法：将工作期内各时段按有效价格 (p_h + η_h) 升序排列，贪心分配（最便宜时段优先）。
+ *
+ * Algorithm 1（迭代次梯度法，论文公式 26）：
+ * 通过对拉格朗日乘子 η_h 进行次梯度迭代，直至收敛：
+ * η_h = max(0, η_h - ψ * (C_max - E_bg_h - Σê_B_h - Σê_C_h))
+ * 收敛条件：连续两次迭代中各时段用电量变化的平方和 ≤ CONVERGENCE_THRESHOLD。
+ *
+ * @see CTypeApplianceParams C 类电器参数模型
  * @see UsersArgs 用户配置参数
- * @see PriceVector 电价向量模型
- * @see OneUserConsumVector 用户用电向量模型
  */
 public class UserMaxSatisfaConsumVector {
-	
-	/**
-	 * 根据电价向量计算用户最优用电向量
-	 * 
-	 * <p>该方法是整个用户行为模型的入口点。它接收一个OneUserConsumVector对象和一个
-	 * PriceVector对象作为输入，计算并返回更新后的用电向量。</p>
-	 * 
-	 * <p>算法流程：</p>
-	 * <ol>
-	 *   <li>遍历每个时段（time_h）</li>
-	 *   <li>计算所有B类电器的总用电量</li>
-	 *   <li>加上A类电器的固定用电量</li>
-	 *   <li>检查是否超过用户最大负荷限制</li>
-	 *   <li>更新用电向量对应时段的数值</li>
-	 * </ol>
-	 * 
-	 * <p>使用示例：</p>
-	 * <pre>
-	 * // 创建用户用电向量
-	 * int[] consumVector = new int[UsersArgs.timeSlots];
-	 * OneUserConsumVector userVector = new OneUserConsumVector(0, consumVector);
-	 * 
-	 * // 计算最优用电方案
-	 * userVector = UserMaxSatisfaConsumVector.getConsumVectorByPriceVector(userVector, priceVector);
-	 * </pre>
-	 * 
-	 * @param oneUserConsumVector 用户用电向量对象，包含用户ID和初始用电数据
-	 * @param priceVector 电价向量对象，包含各个时段的电价信息
-	 * @return 更新后的用户用电向量对象，其consumVector已被计算为最优值
-	 */
-	public static OneUserConsumVector getConsumVectorByPriceVector(
-			OneUserConsumVector oneUserConsumVector, PriceVector priceVector) {
 
-		// 遍历每个时段，计算最优用电量
-		for (int time_h = 0; time_h < UsersArgs.timeSlots; time_h++) {
+    /** Algorithm 1 最大迭代次数 */
+    private static final int MAX_ITER = 200;
 
-			int finalConsumption = 0;  // 该时段的最终用电量
-			float bApplianceSum = 0f;  // B类电器总用电量
-			
-			// 计算所有B类电器在当前时段的用电量
-			for (int applianceNum = 0; applianceNum < UsersArgs.B_applianceNum; applianceNum++) {
-				bApplianceSum += UserMaxSatisfaConsumVector
-						.getOneB_applianceConsumOneUser(priceVector,
-								oneUserConsumVector.getUserID(), time_h,
-								applianceNum);
-			}
-			
-			// 计算总用电量：B类电器用电量 + A类电器固定用电量
-			int totalConsumption = (int) bApplianceSum
-					+ UsersArgs.A_applianceConsum[oneUserConsumVector
-							.getUserID()][time_h];
-			
-			// 检查是否超过用户设定的最大负荷限制
-			if (totalConsumption > UsersArgs.userMax[oneUserConsumVector
-					.getUserID()]) {
-				// 超过限制时，将用电量设置为用户最大允许值
-				finalConsumption = UsersArgs.userMax[oneUserConsumVector.getUserID()];
-			} else {
-				// 未超过限制时，使用计算出的实际值
-				finalConsumption = totalConsumption;
-			}
+    /** Algorithm 1 次梯度步长 ψ（论文中取较小正数以保证收敛） */
+    private static final double STEP_SIZE = 0.005;
 
-			// 更新用电向量对应时段的数值
-			oneUserConsumVector.getConsumVector()[time_h] = finalConsumption;
-		}
+    /** Algorithm 1 收敛判据 ε */
+    private static final double CONVERGENCE_THRESHOLD = 1e-6;
 
-		return oneUserConsumVector;
-	}
+    // ========================================================================
+    // 公共入口
+    // ========================================================================
 
-	/**
-	 * 计算单个B类电器在特定时段的用电量
-	 * 
-	 * <p>该方法实现了B类电器的智能调节算法。通过综合考虑电价、用户满意度和时间因子，
-	 * 计算出单个电器的最优用电量。</p>
-	 * 
-	 * <p>计算公式详解：</p>
-	 * <ul>
-	 *   <li><strong>1.5 * (time_h + 1)</strong>：时间因子，体现不同时段的基础需求差异</li>
-	 *   <li><strong>满意度 + 电价</strong>：成本因子，满意度越高或电价越低，用电量越大</li>
-	 *   <li><strong>min(..., 最大允许用电量)</strong>：物理限制，确保不超过电器额定功率</li>
-	 * </ul>
-	 * 
-	 * <p>该算法的经济学意义：</p>
-	 * <ul>
-	 *   <li>价格弹性：电价上升时，用电需求下降</li>
-	 *   <li>满意度驱动：用户在高满意度时段更愿意用电</li>
-	 *   <li>时间价值：不同时段的用电需求具有不同的权重</li>
-	 * </ul>
-	 * 
-	 * @param priceVector 电价向量对象，用于获取指定时段的电价
-	 * @param userID 用户唯一标识符，用于查找用户的配置参数
-	 * @param time_h 时段索引，范围为[0, UsersArgs.timeSlots)
-	 * @param applianceNum B类电器索引，范围为[0, UsersArgs.B_applianceNum)
-	 * @return 该B类电器在指定时段的最优用电量（浮点数）
-	 */
-	public static float getOneB_applianceConsumOneUser(PriceVector priceVector,
-			int userID, int time_h, int applianceNum) {
-		
-		// 基于满意度和电价的用电量计算
-		float calculatedConsumption = (float) (1.5 * (time_h + 1))
-				/ (float) (UsersArgs.users_B_applianceSatisfa[userID][applianceNum][time_h] 
-						+ (priceVector.getPriceByPosition(time_h)));
-		
-		// 检查是否超过该电器的最大允许用电量
-		if (calculatedConsumption > UsersArgs.B_applianceConsumMax[userID][applianceNum]) {
-			// 超过最大值时，返回最大允许值
-			return (float) UsersArgs.B_applianceConsumMax[userID][applianceNum];
-		}
-		
-		// 未超过最大值时，返回计算值
-		return calculatedConsumption;
-	}
+    /**
+     * 根据电价向量计算用户最优用电向量（Problem P1 的近似最优解）。
+     *
+     * 流程：
+     * 1. 运行 Algorithm 1，迭代更新拉格朗日乘子 η_h
+     * 2. 在收敛后，根据最终 η_h 调用 Lemma 1 / Lemma 2 计算各电器用电量
+     * 3. 叠加 A 类背景负载，得到每时段总用电量
+     *
+     * @param oneUserConsumVector 用户用电向量容器（含用户 ID，结果写入其 consumVector）
+     * @param priceVector         零售商发布的电价向量
+     * @return 填充了最优用电方案的 oneUserConsumVector
+     */
+    public static OneUserConsumVector getConsumVectorByPriceVector(
+            OneUserConsumVector oneUserConsumVector, PriceVector priceVector) {
+
+        int userID = oneUserConsumVector.getUserID();
+        int H = UsersArgs.timeSlots;
+        float[] p = priceVector.getPriceArray();
+
+        // 拉格朗日乘子，初始化为小正值
+        double[] eta = new double[H];
+        Arrays.fill(eta, 0.1);
+
+        // 记录上一轮各 B 类和 C 类电器用电量（用于收敛判断）
+        double[][] prevEB = new double[UsersArgs.B_applianceNum][H];
+        double[][] prevEC = new double[UsersArgs.C_applianceNum][H];
+
+        // ── Algorithm 1 主循环 ──────────────────────────────────────────────
+        for (int iter = 0; iter < MAX_ITER; iter++) {
+
+            // Step 1: Lemma 1 → 计算所有 B 类电器当前时段用电量 ê_B[j][h]
+            double[][] eB = computeBTypeConsumption(userID, p, eta);
+
+            // Step 2: Lemma 2 → 计算所有 C 类电器当前调度用电量 ê_C[c][h]
+            double[][] eC = computeCTypeConsumption(userID, p, eta);
+
+            // Step 3: 计算每时段总 B+C 用电量（不含背景负载）
+            double[] totalBC = new double[H];
+            for (int h = 0; h < H; h++) {
+                for (int j = 0; j < UsersArgs.B_applianceNum; j++) totalBC[h] += eB[j][h];
+                for (int c = 0; c < UsersArgs.C_applianceNum; c++) totalBC[h] += eC[c][h];
+            }
+
+            // Step 4: 次梯度更新 η_h（公式 26）
+            // slack_h = C_max - E_bg_h - Σê_B_h - Σê_C_h
+            for (int h = 0; h < H; h++) {
+                double slack = UsersArgs.userMax[userID]
+                        - UsersArgs.backgroundConsumption[userID][h]
+                        - totalBC[h];
+                eta[h] = Math.max(0.0, eta[h] - STEP_SIZE * slack);
+            }
+
+            // Step 5: 收敛检查（公式 27 判据）
+            if (iter > 0 && hasConverged(eB, eC, prevEB, prevEC, H)) {
+                break;
+            }
+
+            // 保存当前值供下次收敛判断
+            for (int j = 0; j < UsersArgs.B_applianceNum; j++)
+                System.arraycopy(eB[j], 0, prevEB[j], 0, H);
+            for (int c = 0; c < UsersArgs.C_applianceNum; c++)
+                System.arraycopy(eC[c], 0, prevEC[c], 0, H);
+        }
+
+        // ── 用最终 η 计算最优用电量 ─────────────────────────────────────────
+        double[][] finalEB = computeBTypeConsumption(userID, p, eta);
+        double[][] finalEC = computeCTypeConsumption(userID, p, eta);
+
+        double[] result = new double[H];
+        for (int h = 0; h < H; h++) {
+            result[h] += UsersArgs.backgroundConsumption[userID][h];   // A 类
+            for (int j = 0; j < UsersArgs.B_applianceNum; j++) result[h] += finalEB[j][h];
+            for (int c = 0; c < UsersArgs.C_applianceNum; c++) result[h] += finalEC[c][h];
+
+            // 不超过用户最大负载 C_max（对应论文约束 (6)）
+            result[h] = Math.min(result[h], UsersArgs.userMax[userID]);
+        }
+
+        oneUserConsumVector.setConsumVector(result);
+        return oneUserConsumVector;
+    }
+
+    // ========================================================================
+    // Lemma 1：B 类（弹性）电器闭式最优解
+    // ========================================================================
+
+    /**
+     * 利用 Lemma 1 计算所有 B 类电器的最优用电量。
+     *
+     * 效用函数 U(e) = -a*(e+b)^{-1}，其导函数为 U'(e) = a/(e+b)²，
+     * 反函数 U'^{-1}(x) = sqrt(a/x) - b。
+     * 代入 Lemma 1 得到闭式解：
+     * ê_h = clamp( sqrt(a_ui_h / (p_h + η_h)) - b_ui_h, 0, r_max )
+     *
+     * @param userID 用户 ID
+     * @param p      当前价格数组
+     * @param eta    拉格朗日乘子数组
+     * @return ê_B[appliance][slot]，各 B 类电器在各时段的最优用电量
+     */
+    static double[][] computeBTypeConsumption(int userID, float[] p, double[] eta) {
+        int H = UsersArgs.timeSlots;
+        double[][] eB = new double[UsersArgs.B_applianceNum][H];
+
+        for (int j = 0; j < UsersArgs.B_applianceNum; j++) {
+            for (int h = 0; h < H; h++) {
+                double effectivePrice = p[h] + eta[h];
+                double a = UsersArgs.a_ui_h[userID][j][h];
+                double b = UsersArgs.b_ui_h[userID][j][h];
+                double rmax = UsersArgs.B_rmax[userID][j];
+
+                // Lemma 1 闭式解
+                double optimalE = Math.sqrt(a / effectivePrice) - b;
+                eB[j][h] = Math.max(0.0, Math.min(optimalE, rmax));
+            }
+        }
+        return eB;
+    }
+
+    // ========================================================================
+    // Lemma 2：C 类（半非弹性）电器贪心最优分配
+    // ========================================================================
+
+    /**
+     * 利用 Lemma 2 计算所有 C 类电器的最优用电分配。
+     *
+     * C 类电器在工作期 [alpha, beta] 内需消耗固定总量 E，目标是使费用 Σ(p_h+η_h)*e_h 最小。
+     * 最优策略（Lemma 2）：将工作期内各时段按有效价格 (p_h+η_h) 升序排列，贪心分配 r_max
+     * 到最便宜的时段，直到 E 用尽。
+     *
+     * @param userID 用户 ID
+     * @param p      当前价格数组
+     * @param eta    拉格朗日乘子数组
+     * @return ê_C[appliance][slot]，各 C 类电器在各时段的最优用电量
+     */
+    static double[][] computeCTypeConsumption(int userID, float[] p, double[] eta) {
+        int H = UsersArgs.timeSlots;
+        double[][] eC = new double[UsersArgs.C_applianceNum][H];
+
+        for (int c = 0; c < UsersArgs.C_applianceNum; c++) {
+            CTypeApplianceParams appliance = UsersArgs.C_appliances[userID][c];
+            int alpha = appliance.getAlpha();
+            int beta  = appliance.getBeta();
+            double E        = appliance.getTotalEnergy();
+            double rmax     = appliance.getMaxPerSlot();
+
+            // 收集工作期内各时段的有效价格，并排序（升序 = 越便宜越优先）
+            int periodLen = beta - alpha + 1;
+            Integer[] slots = new Integer[periodLen];
+            for (int i = 0; i < periodLen; i++) slots[i] = alpha + i;
+            Arrays.sort(slots, (s1, s2) -> {
+                double price1 = p[s1] + eta[s1];
+                double price2 = p[s2] + eta[s2];
+                return Double.compare(price1, price2);
+            });
+
+            // 贪心分配：最便宜时段先分配 rmax，直到 E 耗尽
+            double remaining = E;
+            for (int s : slots) {
+                if (remaining <= 0) break;
+                double alloc = Math.min(remaining, rmax);
+                eC[c][s] = alloc;
+                remaining -= alloc;
+            }
+        }
+        return eC;
+    }
+
+    // ========================================================================
+    // 收敛判断（对应论文公式 27 的终止条件）
+    // ========================================================================
+
+    /**
+     * 判断 Algorithm 1 是否已收敛。
+     *
+     * 收敛条件（论文公式 27 的简化判据）：
+     * Σ_h [ Σ_B (ê_B^k - ê_B^{k-1})² + Σ_C (ê_C^k - ê_C^{k-1})² ] ≤ ε
+     *
+     * @param eB     当前 B 类用电量
+     * @param eC     当前 C 类用电量
+     * @param prevEB 上一轮 B 类用电量
+     * @param prevEC 上一轮 C 类用电量
+     * @param H      时段数
+     * @return true 如果已收敛
+     */
+    private static boolean hasConverged(double[][] eB, double[][] eC,
+                                        double[][] prevEB, double[][] prevEC, int H) {
+        double sumSqDiff = 0.0;
+
+        for (int j = 0; j < UsersArgs.B_applianceNum; j++) {
+            for (int h = 0; h < H; h++) {
+                double diff = eB[j][h] - prevEB[j][h];
+                sumSqDiff += diff * diff;
+            }
+        }
+        for (int c = 0; c < UsersArgs.C_applianceNum; c++) {
+            for (int h = 0; h < H; h++) {
+                double diff = eC[c][h] - prevEC[c][h];
+                sumSqDiff += diff * diff;
+            }
+        }
+
+        return sumSqDiff <= CONVERGENCE_THRESHOLD;
+    }
 }

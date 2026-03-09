@@ -12,8 +12,8 @@ public final class RetailerConfigConstants {
     
     // =========================== 时间配置 ===========================
     
-    /** 电力分时段数量，默认为4个时间段 */
-    public static final int TIME_SLOTS = 4;
+    /** 电力分时段数量，对应论文 Example 2：H = {1,2,...,12} */
+    public static final int TIME_SLOTS = 12;
     
     // =========================== 网络配置 ===========================
     
@@ -33,11 +33,11 @@ public final class RetailerConfigConstants {
     
     // =========================== 利润计算参数 ===========================
     
-    /** 利润计算公式中的参数a，用于二次项成本计算 */
-    public static final float PROFIT_PARAM_A = 0.005f;
+    /** 利润计算公式中的参数a，对应论文公式(12)，论文 Example 2：a = 10^-4 */
+    public static final float PROFIT_PARAM_A = 1e-4f;
     
-    /** 利润计算公式中的参数b，用于三次项成本计算 */
-    public static final float PROFIT_PARAM_B = 0.001f;
+    /** 利润计算公式中的参数b，对应论文公式(12)，论文 Example 2：b = 2×10^-5 */
+    public static final float PROFIT_PARAM_B = 2e-5f;
     
     /** 利润计算公式中的权重参数w */
     public static final int PROFIT_WEIGHT = 1;

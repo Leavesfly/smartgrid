@@ -5,189 +5,163 @@ import io.leavesfly.smartgrid.user.UserMaxSatisfaConsumVector;
 import io.leavesfly.smartgrid.user.UsersArgs;
 
 /**
- * SAPC（Simulated Annealing Price Control）价格控制算法类
- * 实现智能电网中零售商的动态定价算法
- * 采用模拟退火算法找到最优价格策略，最大化零售商利润
- * <p>
- * 算法核心原理：
- * 1. 初始化随机价格向量
- * 2. 在每个温度下，随机扰动价格向量
- * 3. 根据利润改善情况决定是否接受新价格
- * 4. 逐渐降低温度，直至收敛
+ * SAPC（Simulated Annealing Price Control）价格控制算法。
  *
- * @author SmartGrid Team
- * @version 1.0
+ * 采用模拟退火算法为智能电网零售商求解最优动态定价策略，最大化利润。
+ * 算法流程：初始化随机价格向量 → 逐时段 round-robin 扰动 → 按 SA 准则接受/拒绝 → 降温直至收敛。
  */
 public final class SAPC_Algorithm {
 
     /**
-     * 模拟退火价格优化算法主方法
-     * 在多线程环境中与用户进行交互，逐步优化价格策略
+     * 多线程版 SAPC 算法主入口（对应论文 Algorithm 2）。
      *
-     * @param retailer 零售商核心对象，包含共享状态和同步机制
-     * @throws Exception 算法执行过程中的异常
+     * 与 RetailerServer / UserThread 协同：每次发布新价格后等待所有用户响应，
+     * 再根据聚合用电量和利润决定是否采纳新价格。
+     *
+     * @param retailer 零售商核心对象，持有共享状态与同步原语
+     * @throws Exception 线程等待或 sleep 中断时抛出
      */
-    public static void simulatedAnnealingAglorith(Retailer retailer) throws Exception {
-
+    public static void simulatedAnnealingAlgorithm(Retailer retailer) throws Exception {
         RetailerLogger.logInfo("SAPC算法开始执行");
 
         // 等待所有用户连接完成
         synchronized (retailer.getStepCounter()) {
             retailer.getStepCounter().wait();
         }
-
         RetailerLogger.logInfo("所有用户已连接，SAPC算法开始初始化");
 
-        // 初始化价格向量并进行第一轮交互
+        // 以当前价格向量为初始解，广播并收集第一轮用电量
         retailer.getNewPriceVector().copyPriceVector(
-                retailer.getNewPriceVector(),
-                retailer.getCurrentPriceVector()
-        );
-
-        Thread.sleep(1500);
-        synchronized (retailer.getNewPriceVector()) {
-            retailer.getNewPriceVector().notifyAll();
-        }
-
-        synchronized (retailer.getCurrentConsumption()) {
-            retailer.getCurrentConsumption().wait();
-        }
+                retailer.getNewPriceVector(), retailer.getCurrentPriceVector());
+        broadcastAndWait(retailer);
         retailer.setCurrentRetailerProfit(retailer.getNewRetailerProfit());
-
         RetailerLogger.logInfo("初始利润: " + retailer.getCurrentRetailerProfit());
 
-        // 执行主算法循环
+        // SA 主循环：逐轮降温，直至温度低于终止阈值
         while (RetailerConfigConstants.INITIAL_TEMPERATURE > RetailerConfigConstants.END_TEMPERATURE) {
-            RetailerLogger.logInfo(
-                    "========================== 第 " + RetailerConfigConstants.CURRENT_ROUND +
-                            " 轮迭代 =========================="
-            );
+            RetailerLogger.logInfo("========================== 第 "
+                    + RetailerConfigConstants.CURRENT_ROUND + " 轮迭代 ==========================");
 
-            int position = 0;
-            for (position = 0; position < retailer.getCurrentPriceVector().getPriceArray().length; position++) {
-
+            // 逐时段扰动价格（round-robin）
+            for (int h = 0; h < retailer.getCurrentPriceVector().getPriceArray().length; h++) {
                 float randomPrice = PriceVector.generateRandomPrice();
-                retailer.setNewPriceVector(retailer.getCurrentPriceVector()
-                        .createModifiedPriceVector(position, randomPrice,
-                                retailer.getNewPriceVector()));
+                retailer.setNewPriceVector(
+                        retailer.getCurrentPriceVector().createModifiedPriceVector(
+                                h, randomPrice, retailer.getNewPriceVector()));
 
                 RetailerLogger.logInfo("当前价格" + retailer.getNewPriceVector().toString());
-
-                Thread.sleep(1500);
-                synchronized (retailer.getNewPriceVector()) {
-                    retailer.getNewPriceVector().notifyAll();
-                }
-                synchronized (retailer.getCurrentConsumption()) {
-                    retailer.getCurrentConsumption().wait();
-                }
-
+                broadcastAndWait(retailer);
                 RetailerLogger.logInfo("系统总消耗:" + retailer.getNewConsumption());
                 RetailerLogger.logInfo("新利润:" + retailer.getNewRetailerProfit());
                 RetailerLogger.logInfo("------------------------------");
 
-                if (retailer.getNewRetailerProfit() > retailer.getCurrentRetailerProfit()) {
+                // SA 接受准则：利润改善则直接接受，否则以 Metropolis 概率接受
+                if (shouldAccept(retailer)) {
                     retailer.getCurrentPriceVector().copyPriceVector(
-                            retailer.getCurrentPriceVector(),
-                            retailer.getNewPriceVector());
+                            retailer.getCurrentPriceVector(), retailer.getNewPriceVector());
                     retailer.setCurrentRetailerProfit(retailer.getNewRetailerProfit());
-                } else {
-                    if ((float) Math.random() < (float) (Math.exp((retailer
-                            .getNewRetailerProfit() - retailer
-                            .getCurrentRetailerProfit())
-                            / RetailerConfigConstants.INITIAL_TEMPERATURE))) {
-                        retailer.getCurrentPriceVector().copyPriceVector(
-                                retailer.getCurrentPriceVector(),
-                                retailer.getNewPriceVector());
-                        retailer.setCurrentRetailerProfit(retailer.getNewRetailerProfit());
-                    }
                 }
             }
 
+            // 降温：T(k) = T(k-1) / ln(k)（论文公式）
             RetailerConfigConstants.CURRENT_ROUND++;
-            RetailerConfigConstants.INITIAL_TEMPERATURE = (float) (RetailerConfigConstants.INITIAL_TEMPERATURE / Math
-                    .log(RetailerConfigConstants.CURRENT_ROUND));
+            RetailerConfigConstants.INITIAL_TEMPERATURE =
+                    (float) (RetailerConfigConstants.INITIAL_TEMPERATURE
+                            / Math.log(RetailerConfigConstants.CURRENT_ROUND));
         }
 
-        // 完成算法并发送最终结果
+        // 广播最终价格并标记算法结束
         retailer.getNewPriceVector().copyPriceVector(
                 retailer.getNewPriceVector(), retailer.getCurrentPriceVector());
-
         synchronized (retailer.getNewPriceVector()) {
             retailer.getNewPriceVector().setAlgorithmEnded(true);
             retailer.getNewPriceVector().notifyAll();
         }
-
         RetailerLogger.logInfo("最终价格: " + retailer.getCurrentPriceVector().toString());
         RetailerLogger.logInfo("最终利润: " + retailer.getCurrentRetailerProfit());
     }
 
-    public static void sapcAglorith() {
+    /**
+     * 单用户离线版 SAPC 算法（用于单机调试）。
+     */
+    public static void sapcAlgorithm() {
         int k = 1;
         float T = (float) Math.exp(-1);
         final float E = (float) Math.exp(-5);
         PriceVector priceVectorNow = new PriceVector();
         PriceVector priceVectorNew = new PriceVector();
-        OneUserConsumVector userTimeConsumNow = SAPC_Algorithm.getUserTimeConsumByPrice(priceVectorNow);
-
+        OneUserConsumVector consumNow = getUserTimeConsumByPrice(priceVectorNow);
         float profitNow = RetailerProfitCalculator.calculateRetailerProfit(
-                new ElectricityConsumptionByTime(userTimeConsumNow.getConsumVector()), priceVectorNow);
+                new ElectricityConsumptionByTime(consumNow.getConsumVector()), priceVectorNow);
 
-        System.out.println("T:" + T);
-        System.out.println("E:" + E);
-        System.out.println(priceVectorNow.toString());
-        System.out.println("profitNow:" + profitNow);
+        RetailerLogger.logInfo("初始温度 T=" + T + "  终止温度 E=" + E);
+        RetailerLogger.logInfo(priceVectorNow.toString());
+        RetailerLogger.logInfo("初始利润: " + profitNow);
 
         while (T > E) {
-            int position = 0;
-            for (position = 0; position < priceVectorNow.getPriceArray().length; position++) {
-
+            for (int h = 0; h < priceVectorNow.getPriceArray().length; h++) {
                 float randomPrice = PriceVector.generateRandomPrice();
-                priceVectorNew = priceVectorNow.createModifiedPriceVector(position, randomPrice, priceVectorNew);
+                priceVectorNew = priceVectorNow.createModifiedPriceVector(h, randomPrice, priceVectorNew);
 
-                OneUserConsumVector userTimeConsumNew = SAPC_Algorithm
-                        .getUserTimeConsumByPrice(priceVectorNew);
-
+                OneUserConsumVector consumNew = getUserTimeConsumByPrice(priceVectorNew);
                 float profitNew = RetailerProfitCalculator.calculateRetailerProfit(
-                        new ElectricityConsumptionByTime(userTimeConsumNew.getConsumVector()), priceVectorNew);
+                        new ElectricityConsumptionByTime(consumNew.getConsumVector()), priceVectorNew);
 
-                if (profitNew > profitNow) {
+                float acceptProb = (float) Math.exp((profitNew - profitNow) / T);
+                if (profitNew > profitNow || (float) Math.random() < acceptProb) {
                     priceVectorNow.copyPriceVector(priceVectorNow, priceVectorNew);
                     profitNow = profitNew;
-                } else {
-                    if ((float) Math.random() < (float) (Math
-                            .exp((profitNew - profitNow) / T))) {
-                        priceVectorNow.copyPriceVector(priceVectorNow, priceVectorNew);
-                        profitNow = profitNew;
-                    }
                 }
 
                 RetailerLogger.logInfo(priceVectorNew.toString());
-                RetailerLogger.logInfo("profitNew:" + profitNew);
+                RetailerLogger.logInfo("利润: " + profitNew);
             }
             k++;
             T = (float) (T / Math.log(k));
-
-            RetailerLogger.logInfo("======================"
-                    + k
-                    + "_Round========================");
+            RetailerLogger.logInfo("====== 第 " + k + " 轮 ======");
         }
 
-        RetailerLogger.logInfo("The right :" + priceVectorNow);
+        RetailerLogger.logInfo("最终价格: " + priceVectorNow);
     }
 
-    public static OneUserConsumVector getUserTimeConsumByPrice(
-            PriceVector priceVector) {
-        int[] consumVector = new int[UsersArgs.timeSlots];
-        OneUserConsumVector oneUserConsumVector = new OneUserConsumVector(0,
-                consumVector);
-
-        oneUserConsumVector = UserMaxSatisfaConsumVector
-                .getConsumVectorByPriceVector(oneUserConsumVector, priceVector);
-        System.out.println(oneUserConsumVector.toString());
-        return oneUserConsumVector;
+    /**
+     * 根据给定价格向量计算单用户最优用电向量（用于离线调试）。
+     *
+     * @param priceVector 当前电价向量
+     * @return 用户最优用电向量
+     */
+    public static OneUserConsumVector getUserTimeConsumByPrice(PriceVector priceVector) {
+        double[] consumVector = new double[UsersArgs.timeSlots];
+        OneUserConsumVector oneUserConsumVector = new OneUserConsumVector(0, consumVector);
+        return UserMaxSatisfaConsumVector.getConsumVectorByPriceVector(oneUserConsumVector, priceVector);
     }
 
     public static void main(String[] args) {
-        SAPC_Algorithm.sapcAglorith();
+        SAPC_Algorithm.sapcAlgorithm();
+    }
+
+    // ── 私有辅助方法 ─────────────────────────────────────────────────────────
+
+    /**
+     * 广播新价格并等待所有用户响应（sleep → notifyAll → wait）。
+     */
+    private static void broadcastAndWait(Retailer retailer) throws InterruptedException {
+        Thread.sleep(1500);
+        synchronized (retailer.getNewPriceVector()) {
+            retailer.getNewPriceVector().notifyAll();
+        }
+        synchronized (retailer.getCurrentConsumption()) {
+            retailer.getCurrentConsumption().wait();
+        }
+    }
+
+    /**
+     * SA 接受准则：利润改善时直接接受；否则以 Metropolis 概率接受。
+     */
+    private static boolean shouldAccept(Retailer retailer) {
+        double delta = retailer.getNewRetailerProfit() - retailer.getCurrentRetailerProfit();
+        if (delta > 0) return true;
+        float acceptProb = (float) Math.exp(delta / RetailerConfigConstants.INITIAL_TEMPERATURE);
+        return (float) Math.random() < acceptProb;
     }
 }

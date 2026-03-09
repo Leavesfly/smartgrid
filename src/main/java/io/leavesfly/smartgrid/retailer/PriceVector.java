@@ -15,8 +15,8 @@ public class PriceVector implements Serializable {
     /** 序列化版本号 */
     private static final long serialVersionUID = -5652678536888894383L;
     
-    /** 时间段数量 */
-    private static final int TIME_SLOTS = 4;
+    /** 时间段数量，对应论文 Example 2：H = {1,2,...,12} */
+    private static final int TIME_SLOTS = 12;
     
     /** 最低价格限制 */
     private static final float MIN_PRICE = 0.5f;

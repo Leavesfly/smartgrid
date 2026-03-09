@@ -200,7 +200,7 @@ public class Retailer {
         
         // 聚合所有用户在各时间段的消耗数据
         for (int timeSlot = 0; timeSlot < consumptionByTime.getConsumptionByTimeVector().length; timeSlot++) {
-            int totalConsumptionInTimeSlot = 0;
+            double totalConsumptionInTimeSlot = 0.0;
             
             // 累加所有用户在该时间段的消耗
             for (OneUserConsumVector userConsumption : userConsumptionList) {

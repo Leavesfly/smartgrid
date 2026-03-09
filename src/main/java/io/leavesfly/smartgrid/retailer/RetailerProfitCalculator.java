@@ -51,15 +51,15 @@ public final class RetailerProfitCalculator {
      */
     private static float calculateRevenue(ElectricityConsumptionByTime consumptionByTime, 
                                         PriceVector priceVector) {
-        float revenue = 0f;
-        int[] consumption = consumptionByTime.getConsumptionByTimeVector();
+        double revenue = 0.0;
+        double[] consumption = consumptionByTime.getConsumptionByTimeVector();
         float[] prices = priceVector.getPriceArray();
         
         for (int i = 0; i < consumption.length; i++) {
             revenue += consumption[i] * prices[i];
         }
         
-        return revenue;
+        return (float) revenue;
     }
     
     /**
@@ -74,17 +74,16 @@ public final class RetailerProfitCalculator {
      */
     private static float calculateCost(ElectricityConsumptionByTime consumptionByTime, 
                                      float paramA, float paramB, int weight) {
-        float totalCost = 0f;
-        int[] consumption = consumptionByTime.getConsumptionByTimeVector();
+        double totalCost = 0.0;
+        double[] consumption = consumptionByTime.getConsumptionByTimeVector();
         
         for (int i = 0; i < consumption.length; i++) {
-            // 计算 a * consumption[i]^2 + b * consumption[i]^3
-            float quadraticCost = paramA * (float) Math.pow(consumption[i], 2);
-            float cubicCost = paramB * (float) Math.pow(consumption[i], 3);
+            double quadraticCost = paramA * Math.pow(consumption[i], 2);
+            double cubicCost     = paramB * Math.pow(consumption[i], 3);
             totalCost += quadraticCost + cubicCost;
         }
         
-        return weight * totalCost;
+        return (float) (weight * totalCost);
     }
     
     /**
@@ -99,7 +98,7 @@ public final class RetailerProfitCalculator {
         PriceVector priceVector = new PriceVector(testPrices);
         
         ElectricityConsumptionByTime consumptionByTime = new ElectricityConsumptionByTime();
-        consumptionByTime.setConsumptionByTimeVector(new int[]{2, 2, 2, 3});
+        consumptionByTime.setConsumptionByTimeVector(new double[]{2.0, 2.0, 2.0, 3.0});
         
         // 计算并输出结果
         float profit = RetailerProfitCalculator.calculateRetailerProfit(consumptionByTime, priceVector);
